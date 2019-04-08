@@ -22,16 +22,17 @@ import (
 )
 
 var (
-	csvFile   = flag.String("csv", "", "Output file to append to.")
-	deviceID  = flag.String("device", "test", "")
-	sensorID  = flag.String("sensor", "test", "")
-	projectID = flag.String("project", "", "")
-	freq = flag.Duration("duration", time.Minute, "")
+	csvFile     = flag.String("csv", "", "Output file to append to.")
+	deviceID    = flag.String("device", "test", "")
+	sensorID    = flag.String("sensor", "test", "")
+	projectID   = flag.String("project", "", "")
+	freq        = flag.Duration("duration", time.Minute, "")
+	stackdriver = flag.Bool("stackdriver", true, "Send to stackdriver.")
 
 	metricClient *monitoring.MetricClient
 )
 
-func toCloud(ctx context.Context,value float64, now time.Time) error {
+func toCloud(ctx context.Context, value float64, now time.Time) error {
 	metric := "custom.googleapis.com/sensors/temperature"
 
 	req := monitoringpb.CreateTimeSeriesRequest{
@@ -68,6 +69,10 @@ func toCloud(ctx context.Context,value float64, now time.Time) error {
 
 func main() {
 	flag.Parse()
+	if *projectID == "" {
+		log.Fatal("-project is mandatory")
+	}
+	log.Infof("temp-to-cloud starting up...")
 
 	// Init i2c.
 	if _, err := host.Init(); err != nil {
@@ -86,7 +91,7 @@ func main() {
 
 	// Connect to cloud.
 	ctx := context.Background()
-	if metricClient, err = monitoring.NewMetricClient(ctx);err != nil {
+	if metricClient, err = monitoring.NewMetricClient(ctx); err != nil {
 		log.Fatal(err)
 	}
 	defer metricClient.Close()
@@ -97,7 +102,8 @@ func main() {
 		log.Fatalf("Opening %q: %v", *csvFile, err)
 	}
 
-	for range time.Tick(*freq) {
+	ticker := time.Tick(*freq)
+	for {
 		temp, err := d.SenseTemp()
 		if err != nil {
 			log.Fatal(err)
@@ -106,9 +112,13 @@ func main() {
 		t := float64(now.UnixNano()) / 1e9
 		c := temp.Celsius()
 		fmt.Fprintf(f, "%f,%g\n", t, c)
-		if err := toCloud(ctx, c, now); err != nil {
-			log.Errorf("Failed to log (%f,%g) to cloud: %v", t, c, err)
+		if *stackdriver {
+			log.Debugf("Logging to stackdriver...")
+			if err := toCloud(ctx, c, now); err != nil {
+				log.Errorf("Failed to log (%f,%g) to cloud: %v", t, c, err)
+			}
 		}
+		<-ticker
 	}
 
 	if err := f.Close(); err != nil {
