@@ -22,16 +22,20 @@ import (
 )
 
 var (
-	csvFile     = flag.String("csv", "", "Output file to append to.")
-	deviceID    = flag.String("device", "test", "")
-	sensorID    = flag.String("sensor", "test", "")
-	projectID   = flag.String("project", "", "")
-	freq        = flag.Duration("duration", time.Minute, "")
-	stackdriver = flag.Bool("stackdriver", true, "Send to stackdriver.")
+	i2cID          = flag.String("i2c", "", "I²C bus to use")
+	csvFile        = flag.String("csv", "", "Output file to append to.")
+	deviceID       = flag.String("device", "test", "")
+	sensorID       = flag.String("sensor", "test", "")
+	projectID      = flag.String("project", "", "")
+	doUpdateScreen = flag.Bool("update_screen", false, "Update an OLED screen.")
+	location       = flag.String("location", "us-east1-a", "Location to store timeseries in.")
+	freq           = flag.Duration("duration", time.Minute, "")
+	stackdriver    = flag.Bool("stackdriver", true, "Send to stackdriver.")
 
 	metricClient *monitoring.MetricClient
 )
 
+// Deprecated metric.
 func toCloud(ctx context.Context, value float64, now time.Time) error {
 	metric := "custom.googleapis.com/sensors/temperature"
 
@@ -67,6 +71,45 @@ func toCloud(ctx context.Context, value float64, now time.Time) error {
 	return metricClient.CreateTimeSeries(ctx, &req)
 }
 
+// Sharded scalable metric.
+func toCloudSharded(ctx context.Context, value float64, now time.Time) error {
+	metric := "custom.googleapis.com/sensors/temperature_sharded"
+
+	req := monitoringpb.CreateTimeSeriesRequest{
+		Name: "projects/" + *projectID,
+		TimeSeries: []*monitoringpb.TimeSeries{
+			{
+				Metric: &metricpb.Metric{
+					Type:   metric,
+					Labels: map[string]string{},
+				},
+				// https://cloud.google.com/monitoring/custom-metrics
+				// https://cloud.google.com/monitoring/api/resources#tag_generic_node
+				Resource: &respb.MonitoredResource{
+					Labels: map[string]string{
+						"node_id":   *deviceID,
+						"namespace": *sensorID,
+						"location":  *location,
+					},
+					Type: "generic_node",
+				},
+				Points: []*monitoringpb.Point{
+					{
+						Interval: &monitoringpb.TimeInterval{
+							StartTime: &tspb.Timestamp{Seconds: now.Unix()},
+							EndTime:   &tspb.Timestamp{Seconds: now.Unix()},
+						},
+						Value: &monitoringpb.TypedValue{
+							Value: &monitoringpb.TypedValue_DoubleValue{DoubleValue: value},
+						},
+					},
+				},
+			},
+		},
+	}
+	return metricClient.CreateTimeSeries(ctx, &req)
+}
+
 func main() {
 	flag.Parse()
 	if *projectID == "" {
@@ -78,7 +121,7 @@ func main() {
 	if _, err := host.Init(); err != nil {
 		log.Fatal(err)
 	}
-	b, err := i2creg.Open("")
+	b, err := i2creg.Open(*i2cID)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -87,6 +130,14 @@ func main() {
 	d, err := mcp9808.New(b, &mcp9808.DefaultOpts)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if *doUpdateScreen {
+		cb, err := initScreen()
+		if err != nil {
+			log.Fatalf("Failed to init screen: %v", err)
+		}
+		defer cb()
 	}
 
 	// Connect to cloud.
@@ -116,6 +167,14 @@ func main() {
 			log.Debugf("Logging to stackdriver...")
 			if err := toCloud(ctx, c, now); err != nil {
 				log.Errorf("Failed to log (%f,%g) to cloud: %v", t, c, err)
+			}
+			if err := toCloudSharded(ctx, c, now); err != nil {
+				log.Errorf("Failed to log (%f,%g) to cloud: %v", t, c, err)
+			}
+			if *doUpdateScreen {
+				if err := updateScreen(fmt.Sprintf("%.2f C", c)); err != nil {
+					log.Errorf("Failed to update screen: %v", err)
+				}
 			}
 		}
 		<-ticker
