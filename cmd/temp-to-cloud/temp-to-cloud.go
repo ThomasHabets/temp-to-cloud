@@ -38,63 +38,25 @@ import (
 var (
 	i2cID          = flag.String("i2c", "", "I²C bus to use")
 	csvFile        = flag.String("csv", "", "Output file to append to.")
-	deviceID       = flag.String("device", "test", "")
-	sensorID       = flag.String("sensor", "test", "")
-	projectID      = flag.String("project", "", "")
+	deviceID       = flag.String("device", "test", "Device this runs on.") // TODO: if empty use hostname.
+	sensorID       = flag.String("sensor", "test", "Sensor name. IOW: What/where this is measuring.")
+	projectID      = flag.String("project", "", "GCP Project ID that will own the data.")
 	doUpdateScreen = flag.Bool("update_screen", false, "Update an OLED screen.")
 	location       = flag.String("location", "us-east1-a", "Location to store timeseries in.")
 	freq           = flag.Duration("duration", time.Minute, "")
 	stackdriver    = flag.Bool("stackdriver", true, "Send to stackdriver.")
+	metricName     = flag.String("metric", "custom.googleapis.com/sensors/temperature", "Metric name.")
 
 	metricClient *monitoring.MetricClient
 )
 
-// Deprecated metric.
 func toCloud(ctx context.Context, value float64, now time.Time) error {
-	metric := "custom.googleapis.com/sensors/temperature"
-
 	req := monitoringpb.CreateTimeSeriesRequest{
 		Name: "projects/" + *projectID,
 		TimeSeries: []*monitoringpb.TimeSeries{
 			{
 				Metric: &metricpb.Metric{
-					Type: metric,
-					Labels: map[string]string{
-						"device": *deviceID,
-						"sensor": *sensorID,
-					},
-				},
-				Resource: &respb.MonitoredResource{
-					Labels: map[string]string{},
-					Type:   "global",
-				},
-				Points: []*monitoringpb.Point{
-					{
-						Interval: &monitoringpb.TimeInterval{
-							StartTime: &tspb.Timestamp{Seconds: now.Unix()},
-							EndTime:   &tspb.Timestamp{Seconds: now.Unix()},
-						},
-						Value: &monitoringpb.TypedValue{
-							Value: &monitoringpb.TypedValue_DoubleValue{DoubleValue: value},
-						},
-					},
-				},
-			},
-		},
-	}
-	return metricClient.CreateTimeSeries(ctx, &req)
-}
-
-// Sharded scalable metric.
-func toCloudSharded(ctx context.Context, value float64, now time.Time) error {
-	metric := "custom.googleapis.com/sensors/temperature_sharded"
-
-	req := monitoringpb.CreateTimeSeriesRequest{
-		Name: "projects/" + *projectID,
-		TimeSeries: []*monitoringpb.TimeSeries{
-			{
-				Metric: &metricpb.Metric{
-					Type:   metric,
+					Type:   *metricName,
 					Labels: map[string]string{},
 				},
 				// https://cloud.google.com/monitoring/custom-metrics
@@ -180,9 +142,6 @@ func main() {
 		if *stackdriver {
 			log.Debugf("Logging to stackdriver...")
 			if err := toCloud(ctx, c, now); err != nil {
-				log.Errorf("Failed to log (%f,%g) to cloud: %v", t, c, err)
-			}
-			if err := toCloudSharded(ctx, c, now); err != nil {
 				log.Errorf("Failed to log (%f,%g) to cloud: %v", t, c, err)
 			}
 			if *doUpdateScreen {
