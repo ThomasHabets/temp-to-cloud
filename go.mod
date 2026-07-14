@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/monitoring v1.29.0
 	github.com/golang/protobuf v1.5.4
 	github.com/sirupsen/logrus v1.9.4
-	golang.org/x/image v0.40.0
+	golang.org/x/image v0.44.0
 	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94
 	google.golang.org/genproto/googleapis/api v0.0.0-20260519071638-aa98bba5eb94
 	periph.io/x/periph v3.6.8+incompatible
@@ -35,9 +35,9 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/api v0.274.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260519071638-aa98bba5eb94 // indirect
